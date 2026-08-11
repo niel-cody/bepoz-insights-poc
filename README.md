@@ -18,6 +18,33 @@ change, it is stated in the app's Methodology tab and in [Divergences](#divergen
 
 ---
 
+## Access
+
+The report is **password protected, and the protection is real**: `public/dataset.enc`
+is AES-256-GCM ciphertext. The password is stretched with PBKDF2-SHA256 (310,000
+iterations, per-build random salt) and the derived key decrypts the payload in the
+browser. Nothing in the bundle stores or reveals the password, so a wrong entry fails
+the GCM authentication tag and there is simply nothing readable without it. This is not
+a hidden page with a string comparison behind it.
+
+The session **locks after 30 minutes of inactivity**, dropping the decrypted data out of
+memory and returning to the login screen. Activity resets the clock, the header shows the
+countdown, and there is a "Lock now" button for walking away from a shared screen.
+
+Nothing is written to `localStorage` or `sessionStorage`, so closing the tab ends the
+session. A refresh means entering the password again, which is deliberate.
+
+To rotate the password:
+
+```bash
+python3 etl/encrypt_dataset.py                 # generates a new one and prints it
+python3 etl/encrypt_dataset.py "chosen-password"
+npx vercel --prod                              # redeploy
+```
+
+Rotation means new people cannot get in. Anyone who already downloaded the old bundle
+still holds a copy they can open with the old password, so treat it accordingly.
+
 ## Run it
 
 ```bash
@@ -70,15 +97,17 @@ attribution strip, and a live product price list.
 
 ```
 src/
-  lib.ts               types, formatting, the Bench cube index, dataset decoder
+  lib.ts               types, formatting, the Bench cube index, decrypt + decode
+  components/Lock.tsx  login screen, idle timeout, lock control
   App.tsx              shell, tabs, month / venue filters
   components/ui.tsx    Card, Section, Kpi, Seg, Note
   tabs/                Benchmark, Members, Promotions, Trading, WhatIf, Methodology
 public/
-  dataset.bin          gzipped, string-pooled, columnar aggregate cube (120 KB)
+  dataset.enc          the cube, gzipped then AES-256-GCM encrypted (120 KB)
 etl/
   queries.sql          every Snowflake query behind the cube, with rationale
   pack_dataset.py      JSON -> string-pooled columnar -> gzip
+  encrypt_dataset.py   gzip -> AES-256-GCM, and password rotation
 ```
 
 The app is a pure client. All aggregation happens in Snowflake; the browser receives a
@@ -104,6 +133,7 @@ Run the queries in `etl/queries.sql` against Snowflake, land each result as JSON
 ```bash
 python3 etl/build_dataset.py   # merge into public/dataset.json
 python3 etl/pack_dataset.py    # pack + gzip into public/dataset.bin
+python3 etl/encrypt_dataset.py # encrypt into public/dataset.bin -> dataset.enc
 ```
 
 ---

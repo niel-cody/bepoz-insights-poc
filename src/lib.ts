@@ -13,7 +13,7 @@ export interface BenchRow {
 }
 
 export interface Dataset {
-  meta: { org: string; source: string; orgId: string; window: [string, string]; venues: number; revenueCentres: number; built: string }
+  meta: { org: string; source: string; orgId: string; window: [string, string]; venues: number; revenueCentres: number; built: string; wxEnds?: string }
   venues: string[]
   rcs: Record<string, string[]>
   months: string[]
@@ -31,6 +31,10 @@ export interface Dataset {
   promoImpacted: { v: string; m: string; txs: number; rev: number; disc: number; memTxs: number }[]
   crossover: { v: string; m: string; p: string; visits: number; rev: number; tx: number; mem: number }[]
   products: { v: string; n: string; t: string; qty: number; rev: number; cost: number; price: number }[]
+  daily: { v: string; d: string; tx: number; rev: number; vis: number; memtx: number }[]
+  wx: { p: string; d: string; tmax: number; mm: number }[]
+  wxmap: { v: string; p: string; km: number; ok: number }[]
+  hol: { d: string; n: string }[]
 }
 
 export const ALL = '*'
@@ -159,6 +163,107 @@ export const CAT_COLOR: Record<string, string> = {
 }
 
 // ---------------------------------------------------------------------------
+// Baselines
+//
+// v2's organising principle is that every page opens with a judgement, not a
+// number, and a judgement needs something to judge against. Two baselines are
+// available without leaving the dataset: the previous month, and the venue's
+// share of the group. Same-period-last-year is deliberately absent because the
+// warehouse only carries meaningful Feros trade from January 2026 — inventing
+// it would be exactly the confident-looking chart the house rules forbid.
+// ---------------------------------------------------------------------------
+export interface Delta { abs: number; pct: number; dir: 1 | 0 | -1; hasBase: boolean }
+
+/** Grey inside ±3%, coloured outside, per the Oolio Insights delta spec. */
+export const DELTA_DEADBAND = 0.03
+
+export function delta(current: number, base: number): Delta {
+  if (!isFinite(base) || base === 0) return { abs: NaN, pct: NaN, dir: 0, hasBase: false }
+  const abs = current - base
+  const pct = abs / base
+  return { abs, pct, dir: Math.abs(pct) < DELTA_DEADBAND ? 0 : pct > 0 ? 1 : -1, hasBase: true }
+}
+
+export const prevMonth = (ds: Dataset, m: string): string | null => {
+  const i = ds.months.indexOf(m)
+  return i > 0 ? ds.months[i - 1] : null
+}
+
+/** Index against the group average per venue. 100 = exactly average. */
+export function venueIndex(value: number, groupTotal: number, venueCount: number): number {
+  const avg = groupTotal / venueCount
+  return avg ? (value / avg) * 100 : NaN
+}
+
+// ---------------------------------------------------------------------------
+// Daily series, with weather and holiday context joined
+// ---------------------------------------------------------------------------
+export interface DailyPoint {
+  d: string; label: string; dow: number
+  tx: number; rev: number; vis: number; memtx: number
+  tmax: number | null; mm: number | null
+  holiday: string | null
+  roll7: number
+}
+
+const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** The proxy serving the most venues, used when the view is the whole group. */
+function groupProxy(ds: Dataset): string | undefined {
+  const count = new Map<string, number>()
+  for (const w of ds.wxmap) count.set(w.p, (count.get(w.p) || 0) + 1)
+  let best: string | undefined, n = 0
+  for (const [p, c] of count) if (c > n) { best = p; n = c }
+  return best
+}
+
+export function dailySeries(ds: Dataset, venue: string, month: string): DailyPoint[] {
+  const hol = new Map(ds.hol.map(h => [h.d, h.n]))
+  const proxy = venue === ALL ? groupProxy(ds) : ds.wxmap.find(w => w.v === venue)?.p
+  const wx = new Map<string, { tmax: number; mm: number }>()
+  if (proxy) for (const w of ds.wx) if (w.p === proxy) wx.set(w.d, { tmax: w.tmax, mm: w.mm })
+
+  const rows = ds.daily
+    .filter(r => r.v === venue && (month === ALL || r.d.slice(0, 7) === month))
+    .sort((a, b) => (a.d < b.d ? -1 : 1))
+
+  return rows.map((r, i) => {
+    const w = wx.get(r.d)
+    const from = Math.max(0, i - 6)
+    const window = rows.slice(from, i + 1)
+    const dt = new Date(r.d + 'T00:00:00')
+    return {
+      d: r.d,
+      label: dt.getDate() + ' ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()],
+      dow: dt.getDay(),
+      tx: r.tx, rev: r.rev, vis: r.vis, memtx: r.memtx,
+      tmax: w ? w.tmax : null,
+      mm: w ? w.mm : null,
+      holiday: hol.get(r.d) || null,
+      roll7: window.reduce((a, x) => a + x.rev, 0) / window.length,
+    }
+  })
+}
+
+/** How far the weather context travelled, so it is never passed off as measured. */
+export function weatherProvenance(ds: Dataset, venue: string) {
+  if (venue === ALL) {
+    const p = groupProxy(ds)
+    if (!p) return null
+    const serves = ds.wxmap.filter(w => w.p === p)
+    return {
+      proxy: p, km: NaN, group: true, servesVenues: serves.length,
+      locationConfirmed: true, endsAt: ds.meta.wxEnds,
+      spread: Math.max(...ds.wxmap.map(w => w.km)),
+    }
+  }
+  const m = ds.wxmap.find(w => w.v === venue)
+  return m ? { proxy: m.p, km: m.km, group: false, servesVenues: 1, locationConfirmed: !!m.ok, endsAt: ds.meta.wxEnds, spread: m.km } : null
+}
+
+export const dowName = (n: number) => DOW_SHORT[n]
+
+// ---------------------------------------------------------------------------
 // Loading
 //
 // The dataset ships as a gzipped, string-pooled, columnar payload (~122 KB on
@@ -222,16 +327,59 @@ async function gunzip(buf: ArrayBuffer | Uint8Array): Promise<string> {
   return new Response(stream).text()
 }
 
-export async function loadDataset(): Promise<Dataset> {
-  // Single-file build: the payload is inlined as base64 on the page.
+// ---------------------------------------------------------------------------
+// Access control
+//
+// The dataset is AES-256-GCM encrypted with a key derived from the shared
+// password (PBKDF2-SHA256, 310k iterations, per-build random salt). The
+// password is NOT stored anywhere in the bundle — the only thing shipped is
+// ciphertext, so an incorrect password fails GCM authentication and there is
+// nothing to read without it. This is a real gate, not a hidden page.
+//
+// Layout of dataset.enc:  salt[16] | iv[12] | ciphertext+tag
+// ---------------------------------------------------------------------------
+const PBKDF2_ITERATIONS = 310_000
+
+let cachedPayload: Uint8Array | null = null
+
+async function encryptedPayload(): Promise<Uint8Array> {
+  if (cachedPayload) return cachedPayload
   const inline = (globalThis as any).__FEROS_DATA__ as string | undefined
   if (inline) {
     const bin = atob(inline)
     const bytes = new Uint8Array(bin.length)
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-    return expand(JSON.parse(await gunzip(bytes)))
+    cachedPayload = bytes
+    return bytes
   }
-  const res = await fetch('dataset.bin')
+  const res = await fetch('dataset.enc')
   if (!res.ok) throw new Error('dataset unavailable')
-  return expand(JSON.parse(await gunzip(await res.arrayBuffer())))
+  cachedPayload = new Uint8Array(await res.arrayBuffer())
+  return cachedPayload
+}
+
+export class WrongPassword extends Error {
+  constructor() { super('wrong password'); this.name = 'WrongPassword' }
+}
+
+export async function unlock(password: string): Promise<Dataset> {
+  if (!globalThis.crypto?.subtle) throw new Error('this browser cannot decrypt the dataset (needs a secure context)')
+  const payload = await encryptedPayload()
+  const salt = payload.slice(0, 16)
+  const iv = payload.slice(16, 28)
+  const body = payload.slice(28)
+
+  const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey'])
+  const key = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    material, { name: 'AES-GCM', length: 256 }, false, ['decrypt']
+  )
+
+  let plain: ArrayBuffer
+  try {
+    plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, body)
+  } catch {
+    throw new WrongPassword()   // GCM auth tag mismatch — the only check needed
+  }
+  return expand(JSON.parse(await gunzip(plain)))
 }
