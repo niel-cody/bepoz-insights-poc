@@ -209,3 +209,31 @@ All held at build time on the Jan–Jul 2026 window:
 Venues: Berry Hotel, Engadine Tavern, Heathcote Hotel, Helm Bar, Highfield Caringbah,
 Ocean Beach Hotel, Parc Pavilion, Potts Point Shop, Prince Kirrawee, Taren Point Hotel,
 The Wilton.
+
+
+---
+
+## Thinking edition
+
+A third view alongside Classic and New, added August 2026. Same extract, same measure
+definitions, no new data. Its organising principle is that a judgement should arrive
+with the evidence for it, and that the reader should be able to move the evidence.
+
+| Page | The question | What it computes |
+| --- | --- | --- |
+| Did anything happen? | Is this month's movement real? | Welch comparison of adjacent windows of the venue's own trading days, with the interval and a three-state verdict |
+| Normal days | Is this day unusual, or is this what this venue does? | A same-weekday prediction interval per day, three band shapes, and the false-alarm count the procedure produces on its own |
+| Fair comparison | What can a venue honestly be compared against? | The distribution of the group, the rank shuffle between size and rate measures, and bootstrapped intervals on every rate |
+| Why it moved | Why did the number change? | An exact additive split into calendar mix and trading rate, then into traffic and spend, then what weather explains of the residual |
+| Members | Are members worth more, and how much can we claim? | Pooled against stratified against equal-weighted, a sign test across venues, and a denominator sensitivity dial |
+| How this thinks | How does this edition reason? | The sampling distribution of the mean on real days against the theoretical curve, the five house rules, the method provenance, and what was tried and dropped |
+
+Method source: `30 Knowledge/Statistical Thinking/Seeing Theory.md` and
+`Probability in the Product - Oolio Applications.md` in the vault. Rebuilt from the
+mathematics - no Seeing Theory code or assets are used, per the licence position
+recorded in section 1 of that page.
+
+`src/stat.ts` holds the whole statistical surface and is pure and deterministic:
+Student t from an incomplete beta, Welch's comparison, a seeded percentile bootstrap,
+the exact additive decomposition, the same-weekday prediction band, and the
+pooled/stratified aggregation triple. No page shows an interval that moves on reload.

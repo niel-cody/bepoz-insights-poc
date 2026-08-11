@@ -17,11 +17,20 @@ import PromotionsV2 from './v2/Promotions'
 import TradingV2 from './v2/Trading'
 import WhatIfV2 from './v2/WhatIf'
 
-type Edition = 'classic' | 'new'
+import Signal from './think/Signal'
+import NormalDays from './think/Normal'
+import Compare from './think/Compare'
+import Why from './think/Why'
+import MembersThink from './think/Members'
+import How from './think/How'
+
+type Edition = 'classic' | 'new' | 'thinking'
 
 // Classic is the frozen snapshot: the build Feros has already seen, untouched.
-// New is where the product is going. Tab keys are shared so switching edition
-// keeps you on the same subject rather than resetting you to the front.
+// New is where the product went after the design review. Thinking is where it
+// goes next: the same extract, but every number carries the evidence for itself
+// and the reader can move the evidence. Tab keys are shared where the subject is
+// shared, so switching edition keeps you on the same question.
 const TABS: Record<Edition, { k: string; label: string }[]> = {
   classic: [
     { k: 'bench', label: 'Benchmark' },
@@ -40,6 +49,14 @@ const TABS: Record<Edition, { k: string; label: string }[]> = {
     { k: 'promos', label: 'Discounting' },
     { k: 'whatif', label: 'What-if' },
     { k: 'method', label: 'Methodology' },
+  ],
+  thinking: [
+    { k: 'signal', label: 'Did anything happen?' },
+    { k: 'normal', label: 'Normal days' },
+    { k: 'compare', label: 'Fair comparison' },
+    { k: 'why', label: 'Why it moved' },
+    { k: 'members', label: 'Members' },
+    { k: 'how', label: 'How this thinks' },
   ],
 }
 
@@ -70,9 +87,10 @@ export default function App() {
   const tabs = TABS[edition]
   const activeTab = tabs.some(t => t.k === tab) ? tab : tabs[0].k
   const venueList = picked.length ? picked : ds.venues
-  // v2 uses one filter vocabulary everywhere: a single venue selection that
-  // every page honours. Classic keeps its original split behaviour untouched.
-  const scopeVenue = edition === 'new' ? venue : activeTab === 'bench' ? ALL : venue
+  // v2 and Thinking use one filter vocabulary everywhere: a single venue
+  // selection that every page honours. Classic keeps its original split
+  // behaviour untouched.
+  const scopeVenue = edition !== 'classic' ? venue : activeTab === 'bench' ? ALL : venue
 
   const switchEdition = (e: Edition) => {
     setEdition(e)
@@ -97,6 +115,8 @@ export default function App() {
                 title="The build already shared with Feros, frozen and unchanged">Classic</button>
               <button className={edition === 'new' ? 'on' : ''} onClick={() => switchEdition('new')}
                 title="Rebuilt against the product council review">New</button>
+              <button className={edition === 'thinking' ? 'on' : ''} onClick={() => switchEdition('thinking')}
+                title="The same extract, with the evidence for every number shown and adjustable">Thinking</button>
             </div>
             <LockStatus idleFor={idleFor} onLock={() => lock(false)} />
           </div>
@@ -109,7 +129,7 @@ export default function App() {
       </div>
 
       <div className="shell">
-        {activeTab !== 'method' && (
+        {activeTab !== 'method' && activeTab !== 'how' && (
           <div className="filterband">
             <div className="frow">
               <div className="flabel">Month</div>
@@ -163,10 +183,21 @@ export default function App() {
           {activeTab === 'method' && <Methodology ds={ds} bench={bench} />}
         </>}
 
+        {edition === 'thinking' && <>
+          {activeTab === 'signal' && <Signal ds={ds} month={month} onGo={go} />}
+          {activeTab === 'normal' && <NormalDays ds={ds} venue={scopeVenue} month={month} />}
+          {activeTab === 'compare' && <Compare ds={ds} bench={bench} month={month} onGo={go} />}
+          {activeTab === 'why' && <Why ds={ds} venue={scopeVenue} month={month} />}
+          {activeTab === 'members' && <MembersThink ds={ds} bench={bench} month={month} />}
+          {activeTab === 'how' && <How ds={ds} venue={scopeVenue} />}
+        </>}
+
         <div className="foot">
           {edition === 'classic'
             ? <>Classic edition, frozen as shared with Feros. Switch to New to see the build rebuilt against the product council review.</>
-            : <>New edition. Every page opens with a judgement rather than a number, and every comparison names what it is measured against.</>}
+            : edition === 'new'
+            ? <>New edition. Every page opens with a judgement rather than a number, and every comparison names what it is measured against.</>
+            : <>Thinking edition. Same extract, same measures. Every number carries the evidence for itself, every comparison names what it was judged against, and the dials that decide what counts as evidence are in the reader's hands.</>}
           <br />
           Built from {ds.meta.source} · organisation {ds.meta.orgId} · {n0(ds.bench.filter(b => b.v !== ALL && b.rc !== ALL && b.m !== ALL).length)} aggregate cells
           <br />
