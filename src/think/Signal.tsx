@@ -4,6 +4,7 @@ import { Standfirst } from '../components/v2ui'
 import { Controls, Dial, EstimatePlot, EstimateRow, Finding, Ledger, Method, Stat, StatGrid, Switcher } from '../components/thinkui'
 import { mde, mean, sd, signedMoney, signedPct, welch } from '../stat'
 import { CONF_STEPS, anchorDate, days, revs, shortDate, windows } from './data'
+import { Scope, isWholeGroup, periodLabel, scopeHistory, venuesOf } from './scope'
 
 /**
  * Page one. The question every other page depends on: did anything actually
@@ -15,39 +16,44 @@ import { CONF_STEPS, anchorDate, days, revs, shortDate, windows } from './data'
  * free. On a one-month window the second number is larger than the first for
  * every venue in the group, which is the finding.
  */
-export default function Signal({ ds, month, onGo }: { ds: Dataset; month: string; onGo: (tab: string, venue?: string) => void }) {
+export default function Signal({ ds, scope, onGo }: { ds: Dataset; scope: Scope; onGo: (tab: string, venue?: string) => void }) {
+  const list = venuesOf(ds, scope)
   const [win, setWin] = useState(30)
   const [confIdx, setConfIdx] = useState(2)
   const conf = CONF_STEPS[confIdx]
 
+  // Full history per venue: the period sets where the comparison ends, not how
+  // far back it may look. Choosing July must not prevent July being compared
+  // with June.
   const all = useMemo(() => {
     const m = new Map<string, ReturnType<typeof days>>()
-    for (const v of [ALL, ...ds.venues]) m.set(v, days(ds, v))
+    for (const v of list) m.set(v, days(ds, v))
     return m
-  }, [ds])
+  }, [ds, list])
+  const groupSeries = useMemo(() => scopeHistory(ds, scope), [ds, scope])
 
-  const anchor = useMemo(() => anchorDate(all.get(ALL)!, month), [all, month])
+  const anchor = useMemo(() => anchorDate(groupSeries, scope.period.to), [groupSeries, scope.period.to])
 
   const results = useMemo(() => {
     if (!anchor) return []
-    return ds.venues.map(v => {
+    return list.map(v => {
       const rows = all.get(v)!
       const w = windows(rows, anchor, win)
       const c = welch(revs(w.base), revs(w.now), conf, 8)
       const detectable = mde(sd(revs(w.base)), sd(revs(w.now)), w.base.length || 1, w.now.length || 1, conf)
       return { venue: v, ...w, c, detectable }
     }).filter(r => r.now.length > 0 || r.base.length > 0)
-  }, [ds, all, anchor, win, conf])
+  }, [list, all, anchor, win, conf])
 
   const group = useMemo(() => {
     if (!anchor) return null
-    const w = windows(all.get(ALL)!, anchor, win)
+    const w = windows(groupSeries, anchor, win)
     return { ...w, c: welch(revs(w.base), revs(w.now), conf, 8) }
-  }, [all, anchor, win, conf])
+  }, [groupSeries, anchor, win, conf])
 
   const moved = results.filter(r => r.c.verdict === 'moved')
   const thin = results.filter(r => r.c.verdict === 'thin')
-  const w0 = anchor ? windows(all.get(ALL)!, anchor, win) : null
+  const w0 = anchor ? windows(groupSeries, anchor, win) : null
 
   // The New edition's own ranking, recomputed, so the comparison is like for like.
   const byPct = [...results].filter(r => isFinite(r.c.rel)).sort((a, b) => a.c.rel - b.c.rel)
@@ -102,11 +108,11 @@ export default function Signal({ ds, month, onGo }: { ds: Dataset; month: string
       </Finding>
 
       <StatGrid>
-        <Stat label="Group revenue, this window" value={compact(w0 ? w0.now.reduce((a, d) => a + d.rev, 0) : NaN)}
+        <Stat label={(isWholeGroup(ds, scope) ? 'Group' : 'Selection') + ' revenue, this window'} value={compact(w0 ? w0.now.reduce((a, d) => a + d.rev, 0) : NaN)}
           foot={group && group.c.verdict !== 'thin'
             ? <>average day {compact(group.c.b)}, {signedPct(group.c.rel)} on the window before</>
             : 'not enough days'} />
-        <Stat label="Is the group's move real?" tone={group?.c.verdict === 'moved' ? 'bad' : ''}
+        <Stat label={'Is the ' + (isWholeGroup(ds, scope) ? "group's" : "selection's") + ' move real?'} tone={group?.c.verdict === 'moved' ? 'bad' : ''}
           value={group ? (group.c.verdict === 'moved' ? 'Yes' : group.c.verdict === 'thin' ? 'Unknown' : 'No') : '—'}
           foot={group && isFinite(group.c.t)
             ? <>difference {signedMoney(group.c.diff)} a day, interval {signedMoney(group.c.lo)} to {signedMoney(group.c.hi)}</>

@@ -4,6 +4,7 @@ import { Standfirst } from '../components/v2ui'
 import { Controls, Finding, Ledger, Method, Stat, StatGrid, Switcher } from '../components/thinkui'
 import { band, decompose, judgeDays, mean, pearson, signedMoney, signedPct, splitVolumeRate } from '../stat'
 import { CONF_STEPS, DAY_TYPES, dayType, days, inMonth } from './data'
+import { Scope, isWholeGroup, scopeHistory, venuesOf } from './scope'
 
 /**
  * Page four, and the one the brief actually asked for: why did the number move.
@@ -14,11 +15,14 @@ import { CONF_STEPS, DAY_TYPES, dayType, days, inMonth } from './data'
  * total, so there is nothing to believe or disbelieve — it is arithmetic, and it
  * routinely says the opposite of the headline.
  */
-export default function Why({ ds, venue, month }: { ds: Dataset; venue: string; month: string }) {
-  const all = useMemo(() => days(ds, venue), [ds, venue])
+export default function Why({ ds, scope }: { ds: Dataset; scope: Scope }) {
+  const list = venuesOf(ds, scope)
+  // A month-on-month split needs both months, so the page reads the whole
+  // history and uses the chosen period only to pick which pair it opens on.
+  const all = useMemo(() => scopeHistory(ds, scope), [ds, scope])
   const traded = useMemo(() => ds.months.filter(m => inMonth(all, m).length > 0), [all, ds.months])
 
-  const defaultNow = month !== ALL && traded.includes(month) ? month : traded[traded.length - 1]
+  const defaultNow = traded.includes(scope.period.to) ? scope.period.to : traded[traded.length - 1]
   const [now, setNow] = useState(defaultNow)
   const nowM = traded.includes(now) ? now : traded[traded.length - 1]
   const baseIdx = Math.max(0, traded.indexOf(nowM) - 1)
@@ -66,7 +70,7 @@ export default function Why({ ds, venue, month }: { ds: Dataset; venue: string; 
   const maxTot = Math.max(dec.total0, dec.total1, dec.total0 + dec.calendar)
   const wpx = (v: number) => (maxTot ? (v / maxTot) * 100 : 0)
 
-  const label = venue === ALL ? 'the group' : venue
+  const label = isWholeGroup(ds, scope) ? 'the group' : list.length === 1 ? list[0] : `the ${list.length} selected venues`
 
   return (
     <>

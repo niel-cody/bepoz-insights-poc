@@ -4,6 +4,7 @@ import { Standfirst } from '../components/v2ui'
 import { Controls, Dial, Finding, Method, Stat, StatGrid, Switcher } from '../components/thinkui'
 import { mean, sd, tCrit } from '../stat'
 import { days } from './data'
+import { Scope, venuesOf } from './scope'
 
 /**
  * Page six. Half teaching device, half register.
@@ -19,10 +20,11 @@ import { days } from './data'
  */
 const W = 560, H = 190, PAD = 26
 
-export default function How({ ds, venue }: { ds: Dataset; venue: string }) {
+export default function How({ ds, scope }: { ds: Dataset; scope: Scope }) {
+  const list = venuesOf(ds, scope)
   const [n, setN] = useState(28)
-  const [pick, setPick] = useState<string>(venue)
-  const target = ds.venues.includes(pick) ? pick : venue === ALL ? ds.venues[0] : venue
+  const [pick, setPick] = useState<string>(list[0])
+  const target = list.includes(pick) ? pick : list[0]
 
   const rows = useMemo(() => days(ds, target).map(d => d.rev), [ds, target])
   const m = mean(rows), s = sd(rows)
@@ -86,7 +88,7 @@ export default function How({ ds, venue }: { ds: Dataset; venue: string }) {
             hint={n <= 31 ? 'about a month' : n <= 62 ? 'about two months' : 'about ' + Math.round(n / 30) + ' months'}
             onChange={setN} />
           <Switcher label="Venue" value={target} onChange={setPick}
-            options={ds.venues.slice(0, 6).map(v => ({ k: v, label: v.split(' ')[0] }))} />
+            options={list.slice(0, 6).map(v => ({ k: v, label: v.split(' ')[0] }))} />
         </Controls>
 
         <svg viewBox={`0 0 ${W} ${H}`} className="clt">

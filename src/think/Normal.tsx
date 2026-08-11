@@ -4,6 +4,7 @@ import { Standfirst } from '../components/v2ui'
 import { Controls, Dial, Finding, Ledger, Method, Stat, StatGrid, Switcher, Verdict } from '../components/thinkui'
 import { BandMode, JudgedDay, judgeDays, mean, median, sd, signedPct, varianceExplained } from '../stat'
 import { CONF_STEPS, days, dowShort, shortDate } from './data'
+import { Scope, isWholeGroup, periodLabel, scopeHistory, venuesOf } from './scope'
 
 /**
  * Page two. A day is judged against days like it — same venue, same weekday,
@@ -17,14 +18,18 @@ import { CONF_STEPS, days, dowShort, shortDate } from './data'
  */
 const W = 1120, H = 320, PADL = 66, PADR = 16, PADT = 18, PADB = 46
 
-export default function Normal({ ds, venue, month }: { ds: Dataset; venue: string; month: string }) {
+export default function Normal({ ds, scope }: { ds: Dataset; scope: Scope }) {
+  const list = venuesOf(ds, scope)
+  const label = isWholeGroup(ds, scope) ? 'the group' : list.length === 1 ? list[0] : `the ${list.length} selected venues combined`
   const [weeks, setWeeks] = useState(8)
   const [confIdx, setConfIdx] = useState(2)
   const [mode, setMode] = useState<BandMode>('log')
   const [hover, setHover] = useState<JudgedDay | null>(null)
   const conf = CONF_STEPS[confIdx]
 
-  const all = useMemo(() => days(ds, venue), [ds, venue])
+  // The whole history is judged, because a day needs same-weekday history
+  // behind it; the chosen period only decides what the chart shows.
+  const all = useMemo(() => scopeHistory(ds, scope), [ds, scope])
 
   const judged = useMemo(
     () => judgeDays(all.map(d => ({ d: d.d, label: d.label, dow: d.dow, holiday: d.holiday, rev: d.rev })), { weeks, conf, mode, minN: 4 }),
@@ -48,9 +53,9 @@ export default function Normal({ ds, venue, month }: { ds: Dataset; venue: strin
   // The chart shows the chosen month, or the last ninety days when the filter
   // is on "all months" — a 212-day line at this width is a texture, not a chart.
   const view = useMemo(() => {
-    if (month !== ALL) return judged.filter(j => j.d.slice(0, 7) === month)
-    return judged.slice(-90)
-  }, [judged, month])
+    const inP = judged.filter(j => j.d.slice(0, 7) >= scope.period.from && j.d.slice(0, 7) <= scope.period.to)
+    return inP.length > 120 ? inP.slice(-120) : inP
+  }, [judged, scope.period.from, scope.period.to])
 
   const judgedOnly = judged.filter(j => j.state === 'above' || j.state === 'below' || j.state === 'normal')
   const outside = judged.filter(j => j.state === 'above' || j.state === 'below')
@@ -84,12 +89,10 @@ export default function Normal({ ds, venue, month }: { ds: Dataset; venue: strin
   const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => yMin + f * (yMax - yMin))
   const actualLine = view.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v.actual).toFixed(1)}`).join(' ')
 
-  const label = venue === ALL ? 'the group' : venue
-
   return (
     <>
       <Standfirst
-        question={venue === ALL ? 'Is this day unusual, or is this just what the group does?' : `Is this day unusual, or is this just what ${venue} does?`}
+        question={`Is this day unusual, or is this just what ${label} does?`}
         sub="Each day is compared with its own recent same-weekday history, and only with that. The shaded range is where the next such day would be expected to land — a prediction interval, not a confidence interval on an average."
       />
 
@@ -138,7 +141,7 @@ export default function Normal({ ds, venue, month }: { ds: Dataset; venue: strin
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-h">
-          <div className="card-t">{month === ALL ? 'The last ninety trading days' : monthLabel(month)} at {label}</div>
+          <div className="card-t">{periodLabel(ds, scope.period)} at {label}{view.length >= 120 ? ', latest 120 days' : ''}</div>
         </div>
         <div className="card-s">
           The grey column on each day is where that weekday normally lands. The dot is what actually happened.

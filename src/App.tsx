@@ -17,6 +17,8 @@ import PromotionsV2 from './v2/Promotions'
 import TradingV2 from './v2/Trading'
 import WhatIfV2 from './v2/WhatIf'
 
+import { FilterBar } from './components/FilterBar'
+import { Scope, defaultScope, venuesOf } from './think/scope'
 import Signal from './think/Signal'
 import NormalDays from './think/Normal'
 import Compare from './think/Compare'
@@ -69,6 +71,11 @@ export default function App() {
   const [venue, setVenue] = useState(ALL)
   const [picked, setPicked] = useState<string[]>([])
   const [modelTag, setModelTag] = useState<string | null>(null)
+  // Thinking has its own filter vocabulary: a period rather than a month, and a
+  // set of venues rather than one. Classic and New keep the controls they were
+  // reviewed with — they are reference points, and changing them would make
+  // them no longer the thing that was signed off.
+  const [scope, setScope] = useState<Scope | null>(null)
 
   const lock = useCallback((viaTimeout: boolean) => {
     setDs(null); setTimedOut(viaTimeout)
@@ -78,6 +85,7 @@ export default function App() {
   const idleFor = useIdleLock(!!ds, onIdle)
 
   const bench = useMemo(() => (ds ? new Bench(ds.bench) : null), [ds])
+  const sc = ds ? scope ?? defaultScope(ds) : null
 
   if (!ds || !bench) {
     return <LoginScreen wasTimedOut={timedOut}
@@ -99,6 +107,11 @@ export default function App() {
   }
 
   const go = (t: string, v?: string) => { setTab(t); if (v) setVenue(v) }
+  // Thinking's drill-through narrows the scope rather than swapping a filter.
+  const goThink = (t: string, v?: string) => {
+    setTab(t)
+    if (v && sc) setScope({ ...sc, venues: [v], rcs: [] })
+  }
 
   return (
     <>
@@ -129,7 +142,15 @@ export default function App() {
       </div>
 
       <div className="shell">
-        {activeTab !== 'method' && activeTab !== 'how' && (
+        {edition === 'thinking' && sc && activeTab !== 'how' && (
+          <FilterBar ds={ds} scope={sc} onChange={setScope}
+            rcEnabled={activeTab === 'members'}
+            rcReason={activeTab === 'members'
+              ? 'Revenue centres'
+              : 'This page reads daily observations, and the daily table is venue-level. Revenue centres exist only in the monthly cube, so they can be selected on Members and nowhere else.'} />
+        )}
+
+        {edition !== 'thinking' && activeTab !== 'method' && activeTab !== 'how' && (
           <div className="filterband">
             <div className="frow">
               <div className="flabel">Month</div>
@@ -183,13 +204,13 @@ export default function App() {
           {activeTab === 'method' && <Methodology ds={ds} bench={bench} />}
         </>}
 
-        {edition === 'thinking' && <>
-          {activeTab === 'signal' && <Signal ds={ds} month={month} onGo={go} />}
-          {activeTab === 'normal' && <NormalDays ds={ds} venue={scopeVenue} month={month} />}
-          {activeTab === 'compare' && <Compare ds={ds} bench={bench} month={month} onGo={go} />}
-          {activeTab === 'why' && <Why ds={ds} venue={scopeVenue} month={month} />}
-          {activeTab === 'members' && <MembersThink ds={ds} bench={bench} month={month} />}
-          {activeTab === 'how' && <How ds={ds} venue={scopeVenue} />}
+        {edition === 'thinking' && sc && <>
+          {activeTab === 'signal' && <Signal ds={ds} scope={sc} onGo={goThink} />}
+          {activeTab === 'normal' && <NormalDays ds={ds} scope={sc} />}
+          {activeTab === 'compare' && <Compare ds={ds} scope={sc} onGo={goThink} />}
+          {activeTab === 'why' && <Why ds={ds} scope={sc} />}
+          {activeTab === 'members' && <MembersThink ds={ds} bench={bench} scope={sc} />}
+          {activeTab === 'how' && <How ds={ds} scope={sc} />}
         </>}
 
         <div className="foot">

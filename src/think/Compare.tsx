@@ -4,6 +4,7 @@ import { Standfirst } from '../components/v2ui'
 import { Controls, EstimatePlot, EstimateRow, Finding, Ledger, Method, Stat, StatGrid, Switcher, Verdict } from '../components/thinkui'
 import { bootstrapCI, mean, median, quantile } from '../stat'
 import { CONF_STEPS, Day, days } from './data'
+import { Scope, isWholeGroup, periodLabel, venueDays, venuesOf } from './scope'
 
 /**
  * Page three, and the reason this edition exists.
@@ -52,19 +53,16 @@ const MEASURES: Measure[] = [
   },
 ]
 
-export default function Compare({ ds, bench, month, onGo }: { ds: Dataset; bench: Bench; month: string; onGo: (t: string, v?: string) => void }) {
+export default function Compare({ ds, scope, onGo }: { ds: Dataset; scope: Scope; onGo: (t: string, v?: string) => void }) {
+  const list = venuesOf(ds, scope)
   const [mk, setMk] = useState('pv')
   const [confIdx, setConfIdx] = useState(2)
   const conf = CONF_STEPS[confIdx]
   const M = MEASURES.find(m => m.k === mk)!
 
-  const perVenue = useMemo(() => {
-    return ds.venues.map(v => {
-      const all = days(ds, v)
-      const rows = month === ALL ? all : all.filter(d => d.d.slice(0, 7) === month)
-      return { venue: v, rows, allRows: all }
-    }).filter(r => r.rows.length > 0)
-  }, [ds, month])
+  const perVenue = useMemo(() =>
+    list.map(v => ({ venue: v, rows: venueDays(ds, v, scope.period) })).filter(r => r.rows.length > 0),
+    [ds, list, scope.period])
 
   const stats = useMemo(() => perVenue.map(({ venue, rows }) => {
     const total = rows.reduce((a, d) => a + M.num(d), 0)
@@ -132,7 +130,7 @@ export default function Compare({ ds, bench, month, onGo }: { ds: Dataset; bench
     <>
       <Standfirst
         question="What is a fair thing to compare a venue against?"
-        sub="Not the group average. Eleven venues that differ sevenfold in size, from two revenue centres to eight, and from three months of trading history to seven, do not share a meaningful average."
+        sub={`Not the group average. ${isWholeGroup(ds, scope) ? 'Eleven venues' : `The ${stats.length} venues selected`} differ in size, in how many revenue centres they run and in how long they have been trading, so they do not share a meaningful average. ${periodLabel(ds, scope.period)}.`}
       />
 
       <Controls note={M.note}>
@@ -155,8 +153,9 @@ export default function Compare({ ds, bench, month, onGo }: { ds: Dataset; bench
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-t">Where the group actually sits</div>
         <div className="card-s">
-          Every venue on one axis, with the mean and the median marked. The distance between those two marks is how
-          misleading “versus average” is on this measure.
+          Every venue in scope on one axis, with the mean and the median marked. The distance between those two marks
+          is how misleading “versus average” is on this measure. Narrow the selection and the average moves — which is
+          itself the point.
         </div>
         <div className="strip">
           {(() => {
